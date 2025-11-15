@@ -1,5 +1,7 @@
 import time
 from testa.runner import discover_tests, run_all_tests
+from dotenv import load_dotenv
+load_dotenv()
 
 
 if __name__ == "__main__":
