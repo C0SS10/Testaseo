@@ -1,5 +1,3 @@
-from functools import wraps
-
 TESTS = []
 
 def test(description=None):
