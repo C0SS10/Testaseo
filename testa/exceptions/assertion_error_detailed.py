@@ -1,0 +1,2 @@
+class AssertionErrorDetailed(AssertionError):
+    pass
