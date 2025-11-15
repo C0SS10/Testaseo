@@ -1,8 +1,9 @@
 from testa.framework import test
 import requests
+import os
 
 BASE = "http://www.omdbapi.com/"
-API_KEY = "c6915a3c"
+API_KEY = os.getenv("API_KEY_OMDB")
 
 
 @test("Buscar Blade Runner 2049 (Villeneuve).")
