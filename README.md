@@ -9,9 +9,8 @@
 
 ---
 
-### >[!IMPORTANT]
+>[!IMPORTANT]
 > Usa **Poetry** para gestionar el entorno. Si no lo tienes:
->
 > ```bash
 > pip install poetry
 > ```
@@ -60,11 +59,9 @@ poetry run python main.py
 
 ### ✍️ Cómo escribir tests
 
-Cada test es una función decorada con @test o @test("Descripción").
+Cada test es una función decorada con `@test` o `@test("Descripción")`. La función recibe un solo argumento context (TestContext).
 
-La función recibe un solo argumento context (TestContext).
-
-Ejemplo: `tests/test_a24_movies.py`
+Ejemplo: **`tests/test_a24_movies.py`**
 
 ```python
 from testa.framework import test
