@@ -78,3 +78,21 @@ def test_search_a24_hereditary(context):
     data = response.json()
     context.assert_true(any("Hereditary" in m["Title"] for m in data.get("Search", [])))
 ```
+
+### 🏷️ Ejecutar categorías específicas (unit/integration/e2e)
+
+Ahora Testa permite etiquetar tests por categoría y ejecutar sólo un subconjunto.
+
+Ejemplos de uso:
+
+```bash
+# Ejecutar sólo tests de unidad
+poetry run python main.py --types unit
+
+# Ejecutar unit + integration
+poetry run python main.py --types unit,integration
+```
+
+También hay hooks AOP-similares: `before_all`, `after_all`, `before_each`, `after_each`
+que puedes usar con `testa.framework` para ejecutar lógica antes/después de tests
+por categoría.
