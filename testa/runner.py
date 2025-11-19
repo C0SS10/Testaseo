@@ -1,155 +1,171 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import importlib
 import os
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from testa.exceptions.assertion_error_detailed import AssertionErrorDetailed
 from testa.framework import TESTS, BEFORE_ALL, AFTER_ALL, BEFORE_EACH, AFTER_EACH
 from testa.models.colors import bold, green, red, yellow
 from testa.models.test_context import TestContext
 from testa.models.test_result import TestResult
 
+def run_hooks(hooks: Iterable[Any], *args: Any) -> None:
+    """
+    Ejecuta una lista de hooks sin detener el flujo si uno falla.
 
-def run_single_test(test_info):
-    """Run one test and honor before_each/after_each hooks for its category."""
+    Args:
+        hooks: Iterable con funciones hook.
+        args: Argumentos que se pasan al hook.
+    """
+    for hook in hooks:
+        try:
+            hook(*args)
+        except Exception:
+            # Los errores de hooks no deben detener la ejecución
+            continue
+
+
+def run_single_test(test_info: Dict[str, Any]) -> TestResult:
+    """
+    Ejecuta un único test, incluyendo hooks before_each y after_each
+    de la categoría asociada.
+
+    Args:
+        test_info: Diccionario con información del test.
+
+    Returns:
+        TestResult: Resultado de la prueba.
+    """
     function = test_info["func"]
-    name = test_info["description"] or test_info["name"]
+    name = test_info.get("description") or test_info.get("name")
     category = test_info.get("category", "unit")
 
     print(f"⏳ Starting: {name} [{category}]")
 
     context = TestContext()
 
-    # Run before_each hooks
-    for hook in BEFORE_EACH.get(category, []):
-        try:
-            hook(test_info)
-        except Exception:
-            # hook errors should not stop tests
-            pass
+    # Hooks before_each
+    run_hooks(BEFORE_EACH.get(category, []), test_info)
 
     try:
         function(context)
         print(f"  {green('✓')} Finished: {name}")
-        result = TestResult(name, True)
+        result = TestResult(name=name, passed=True)
 
     except AssertionErrorDetailed as error:
         print(f"  {red('✗')} Failed: {name}")
-        result = TestResult(name, False, str(error))
+        result = TestResult(name=name, passed=False, error=str(error))
 
     except Exception as error:
         print(f"  {red('✗')} Error: {name}")
-        result = TestResult(name, False, f"Error inesperado:\n{error}")
+        result = TestResult(name=name, passed=False, error=f"Error inesperado:\n{error}")
 
-    # Run after_each hooks
-    for hook in AFTER_EACH.get(category, []):
-        try:
-            hook(test_info, result)
-        except Exception:
-            pass
+    # Hooks after_each
+    run_hooks(AFTER_EACH.get(category, []), test_info, result)
 
     return result
 
 
-def run_all_tests(types=None, max_workers=4, category_workers: dict = None):
-    """Run tests optionally filtered by `types` (list of categories).
+def run_all_tests(
+    types: Optional[List[str]] = None,
+    max_workers: int = 4,
+    category_workers: Optional[Dict[str, int]] = None,
+) -> List[TestResult]:
+    """
+    Ejecuta todas las pruebas, organizándolas por categoría y
+    aplicando hooks before_all y after_all.
 
-    Execution model:
-      - Group tests by category.
-      - For each category: run BEFORE_ALL hooks, then execute that category's
-        tests in a dedicated ThreadPoolExecutor (workers controlled via
-        `category_workers`), then run AFTER_ALL hooks.
+    Args:
+        types: Lista de categorías a ejecutar o None para ejecutar todas.
+        max_workers: Número de workers por defecto.
+        category_workers: Configuración opcional workers por categoría.
 
-    Parameters:
-      types: list or None -> categories to run (None == all)
-      max_workers: default workers when category_workers not provided
-      category_workers: optional dict mapping category->workers
+    Returns:
+        Lista ordenada de TestResult.
     """
     print(bold("⌛ Running tests...\n"))
 
-    results = []
+    results: List[TestResult] = []
 
-    # Filter tests by requested types
-    tests_to_run = [t for t in TESTS if types is None or t.get("category") in types]
+    # Filtrar pruebas según categorías indicadas
+    tests_to_run = [
+        t for t in TESTS
+        if types is None or t.get("category") in types
+    ]
 
-    # Group by category
-    from collections import defaultdict
-
-    tests_by_cat = defaultdict(list)
+    # Agrupar por categoría
+    tests_by_cat: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for t in tests_to_run:
-        tests_by_cat[t.get("category", "unit")].append(t)
+        category = t.get("category", "unit")
+        tests_by_cat[category].append(t)
 
-    # For each category create a dedicated executor and submit its tests
-    category_executors = {}
-    all_futures = []
+    # Ejecutores por categoría
+    executors: Dict[str, ThreadPoolExecutor] = {}
+    futures: List[Tuple[Future[TestResult], Dict[str, Any]]] = []
 
+    # Asignar tareas por categoría
     for category, tests in tests_by_cat.items():
-        # run before_all hooks
-        for hook in BEFORE_ALL.get(category, []):
-            try:
-                hook(category)
-            except Exception:
-                pass
+
+        run_hooks(BEFORE_ALL.get(category, []), category)
 
         workers = (category_workers or {}).get(category, max_workers)
         executor = ThreadPoolExecutor(max_workers=workers)
-        category_executors[category] = executor
+        executors[category] = executor
 
         for test in tests:
             future = executor.submit(run_single_test, test)
-            all_futures.append((future, test))
+            futures.append((future, test))
 
-    # Collect results as they complete
-    for future, test in all_futures:
+    # Recolectar resultados
+    for future, test in futures:
         try:
             results.append(future.result())
-        except Exception as e:
-            # Shouldn't happen because run_single_test handles exceptions, but
-            # be defensive.
-            results.append(TestResult(test.get("description") or test.get("name"), False, str(e)))
+        except Exception as error:
+            # Defensa: no debería ocurrir, run_single_test captura todo
+            name = test.get("description") or test.get("name")
+            results.append(TestResult(name=name, passed=False, error=str(error)))
 
-    # After all futures finished, call after_all hooks and shutdown executors
-    for category, executor in category_executors.items():
-        # shutdown executor to free threads
+    # Cierre de ejecutores + hooks after_all
+    for category, executor in executors.items():
         executor.shutdown(wait=True)
+        run_hooks(AFTER_ALL.get(category, []), category)
 
-        for hook in AFTER_ALL.get(category, []):
-            try:
-                hook(category)
-            except Exception:
-                pass
-
-    # Ordenar por orden de definición
+    # Orden por definición original
     results_sorted = sorted(
         results,
         key=lambda r: next(
             i for i, t in enumerate(TESTS)
-            if (t["description"] or t["name"]) == r.name
+            if (t.get("description") or t.get("name")) == r.name
         )
     )
 
-    passed = [r for r in results_sorted if r.passed]
-    failed = [r for r in results_sorted if not r.passed]
-
-    print()
-
-    # Mostrar PASSED
-    for result in passed:
-        print(f"🟩 {result.name} PASSED")
-
-    # Mostrar FAILED (solo título)
-    for result in failed:
-        print(f"🟥 {result.name} FAILED")
-
-    # Explicación detallada de errores
-    print()
-    for result in failed:
-        _print_failure(result)
-
-    # Resumen
-    print(bold(f"Passed: {len(passed)}   Failed: {len(failed)}"))
+    print_summary(results_sorted)
 
     return results_sorted
 
-def _print_failure(result):
+def print_summary(results: List[TestResult]) -> None:
+    """Imprime el resumen, mostrando pruebas PASSED/FAILED y errores detallados."""
+    passed = [r for r in results if r.passed]
+    failed = [r for r in results if not r.passed]
+
+    print()
+
+    for r in passed:
+        print(f"🟩 {r.name} PASSED")
+
+    for r in failed:
+        print(f"🟥 {r.name} FAILED")
+
+    print()
+
+    for r in failed:
+        print_failure(r)
+
+    print(bold(f"Passed: {len(passed)}   Failed: {len(failed)}"))
+
+
+def print_failure(result: TestResult) -> None:
+    """Imprime detalles de un fallo de test."""
     print(yellow("─" * 50))
     print(red(f"🟥 FAIL: {result.name}"))
     print(bold(red("Assertion failed:\n")))
@@ -157,8 +173,15 @@ def _print_failure(result):
     print(yellow("─" * 50))
     print()
 
-def discover_tests(directory="tests"):
-    """ Función para descubrir y ejecutar todos los tests en el directorio "tests". """
+
+def discover_tests(directory: str = "tests") -> None:
+    """
+    Importa dinámicamente todos los archivos en un directorio cuyo nombre
+    comience por 'test_' y termine en '.py'.
+
+    Args:
+        directory: Directorio donde buscar tests.
+    """
     for filename in os.listdir(directory):
         if filename.startswith("test_") and filename.endswith(".py"):
             module_name = filename[:-3]

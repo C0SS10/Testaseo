@@ -1,97 +1,118 @@
-"""Minimal test registration, tagging and simple AOP-style hooks.
+from __future__ import annotations
 
-This module exposes:
-- `test` decorator which can be used as `@test`, `@test("desc")`, or
-  `@test(category="integration")`.
-- Hook decorators: `before_all`, `after_all`, `before_each`, `after_each` that
-  register functions to run around tests for a given category.
+from typing import Callable, Dict, List, Optional, Any
 
-Tests are registered in the `TESTS` list as dicts with keys:
-  name, func, description, category
+# Tipos internos
 
-The runner imports these globals to filter and execute tests.
-"""
+TestFunction = Callable[..., Any]
+HookFunction = Callable[..., Any]
 
-from typing import Callable, Optional
-
-# Central registry of tests
-TESTS = []
-
-# Hooks stored per category (string -> list[callable])
-BEFORE_ALL = {}
-AFTER_ALL = {}
-BEFORE_EACH = {}
-AFTER_EACH = {}
+TestInfo = Dict[str, Any]
+HookRegistry = Dict[str, List[HookFunction]]
 
 
-def _register_hook(store: dict, category: str, func: Callable):
-    store.setdefault(category, []).append(func)
-    return func
+# Registro global de pruebas y hooks
+
+TESTS: List[TestInfo] = []
+
+BEFORE_ALL: HookRegistry = {}
+AFTER_ALL: HookRegistry = {}
+BEFORE_EACH: HookRegistry = {}
+AFTER_EACH: HookRegistry = {}
 
 
-def before_all(category: str):
-    """Decorator: register a function to run once before all tests of `category`."""
-    return lambda f: _register_hook(BEFORE_ALL, category, f)
-
-
-def after_all(category: str):
-    """Decorator: register a function to run once after all tests of `category`."""
-    return lambda f: _register_hook(AFTER_ALL, category, f)
-
-
-def before_each(category: str):
-    """Decorator: register a function to run before each test of `category`.
-
-    Hook signature: func(test_info) — receives the test dict.
+def register_hook(store: HookRegistry, category: str, function: HookFunction) -> HookFunction:
     """
-    return lambda f: _register_hook(BEFORE_EACH, category, f)
+    Registra un hook dentro del diccionario correspondiente.
 
+    Args:
+        store: Diccionario de hooks agrupados por categoría.
+        category: Categoría de test a la cual aplica el hook.
+        function: Función hook.
 
-def after_each(category: str):
-    """Decorator: register a function to run after each test of `category`.
-
-    Hook signature: func(test_info, result) — receives the test dict and result.
+    Returns:
+        La misma función hook, para permitir encadenamiento de decoradores.
     """
-    return lambda f: _register_hook(AFTER_EACH, category, f)
+    store.setdefault(category, []).append(function)
+    return function
 
 
-def test(description: Optional[str] = None, category: str = "unit"):
-    """Register a test.
+def before_all(category: str) -> Callable[[HookFunction], HookFunction]:
+    """Registra un hook que se ejecuta una vez ANTES de todos los tests de `category`."""
+    return lambda f: register_hook(BEFORE_ALL, category, f)
 
-    Usage:
-      @test
-      def t(ctx): ...
 
-      @test("desc")
-      def t(ctx): ...
+def after_all(category: str) -> Callable[[HookFunction], HookFunction]:
+    """Registra un hook que se ejecuta una vez DESPUÉS de todos los tests de `category`."""
+    return lambda f: register_hook(AFTER_ALL, category, f)
 
-      @test(category="integration")
-      def t(ctx): ...
 
-      @test("desc", category="e2e")
-      def t(ctx): ...
+def before_each(category: str) -> Callable[[HookFunction], HookFunction]:
+    """
+    Registra un hook que se ejecuta ANTES de cada test de `category`.
+
+    Firma esperada:
+        hook(test_info: dict)
+    """
+    return lambda f: register_hook(BEFORE_EACH, category, f)
+
+
+def after_each(category: str) -> Callable[[HookFunction], HookFunction]:
+    """
+    Registra un hook que se ejecuta DESPUÉS de cada test de `category`.
+
+    Firma esperada:
+        hook(test_info: dict, result: TestResult)
+    """
+    return lambda f: register_hook(AFTER_EACH, category, f)
+
+
+def test(description: Optional[str] = None, *, category: str = "unit") -> Callable[[TestFunction], TestFunction] | TestFunction:
+    """
+    Registra una función de prueba.
+
+    Formas de uso:
+
+        @test
+        def my_test(context): ...
+
+        @test("Descripción opcional")
+        def my_test(context): ...
+
+        @test(category="integration")
+        def my_test(context): ...
+
+        @test("Desc", category="e2e")
+        def my_test(context): ...
+
+    Args:
+        description: Descripción del test o None.
+        category: Categoría del test (“unit” por defecto).
+
+    Returns:
+        El decorador correspondiente o la función decorada.
     """
 
-    # Case: used as @test without parentheses -> description is the callable
+    # Caso: @test sin paréntesis -> description es la función
     if callable(description):
-        func = description
+        function = description
         TESTS.append({
-            "name": func.__name__,
-            "func": func,
+            "name": function.__name__,
+            "func": function,
             "description": None,
             "category": category,
         })
-        return func
+        return function
 
-    # Otherwise return a decorator that captures description and category
-    def decorator(func: Callable):
+    # Caso: @test("desc") o @test(category="...") o ambos
+    def decorator(function: TestFunction) -> TestFunction:
         desc = description if isinstance(description, str) else None
         TESTS.append({
-            "name": func.__name__,
-            "func": func,
+            "name": function.__name__,
+            "func": function,
             "description": desc,
             "category": category,
         })
-        return func
+        return function
 
     return decorator
