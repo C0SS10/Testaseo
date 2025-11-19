@@ -12,7 +12,7 @@ def main() -> None:
     args = parse_args()
     types = parse_types(args.types)
 
-    discover_tests(args.dir)
+    discover_tests(directory=args.dir, file=args.file)
 
     print(
         f"Ejecutando categorías: {types or 'todas'} "

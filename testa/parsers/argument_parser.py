@@ -36,4 +36,12 @@ def parse_args():
         help="Directorio donde se encuentran las pruebas. (default: tests)",
     )
 
+    parser.add_argument(
+        "--file",
+        "-f",
+        type=str,
+        default=None,
+        help="Ejecutar solo un archivo específico dentro del directorio de tests."
+    )
+
     return parser.parse_args()

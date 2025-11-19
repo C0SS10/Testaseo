@@ -5,20 +5,20 @@ from testa.models.colors import red, yellow
 
 
 class TestContext:
-    def _format_diff(self, a, b):
+    def format_diff(self, a, b):
         """Genera una salida tipo diff para strings y dicts."""
         if isinstance(a, dict) and isinstance(b, dict):
             a_json = json.dumps(a, indent=2, ensure_ascii=False)
             b_json = json.dumps(b, indent=2, ensure_ascii=False)
-            return self._diff_text(a_json, b_json)
+            return self.diff_text(a_json, b_json)
 
         if isinstance(a, str) and isinstance(b, str):
-            return self._diff_text(a, b)
+            return self.diff_text(a, b)
 
-        return f"Expected: {a}\nGot:      {b}"
+        return f"Se esperaba: {a}\nSe obtuvo:      {b}"
 
 
-    def _diff_text(self, a, b):
+    def diff_text(self, a, b):
         import difflib
         diff = difflib.ndiff(a.splitlines(), b.splitlines())
         lines = []
@@ -34,7 +34,7 @@ class TestContext:
 
     def assert_equal(self, a, b, message=""):
         if a != b:
-            details = message or self._format_diff(b, a)
+            details = message or self.format_diff(b, a)
             raise AssertionErrorDetailed(details)
     
 

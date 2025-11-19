@@ -44,24 +44,34 @@ def run_single_test(test_info: Dict[str, Any]) -> TestResult:
 
     context = TestContext()
 
-    # Hooks before_each
-    run_hooks(BEFORE_EACH.get(category, []), test_info)
+    result = TestResult(name=name, passed=False, error=None)
+
+    # Ejecutamos siempre before_each, pero sin detener el test
+    try:
+        run_hooks(BEFORE_EACH.get(category, []))
+    except Exception as e:
+        # Un hook no detiene la ejecución, pero registramos error de hook
+        result.error = f"Error en before_each: {e}"
 
     try:
+        # Ejecución del test
         function(context)
         print(f"  {green('✓')} Finished: {name}")
-        result = TestResult(name=name, passed=True)
+        result.passed = True
+        result.error = None
 
     except AssertionErrorDetailed as error:
         print(f"  {red('✗')} Failed: {name}")
-        result = TestResult(name=name, passed=False, error=str(error))
+        result.passed = False
+        result.error = str(error)
 
     except Exception as error:
         print(f"  {red('✗')} Error: {name}")
-        result = TestResult(name=name, passed=False, error=f"Error inesperado:\n{error}")
+        result.passed = False
+        result.error = f"Error inesperado:\n{error}"
 
-    # Hooks after_each
-    run_hooks(AFTER_EACH.get(category, []), test_info, result)
+    finally:
+        run_hooks(AFTER_EACH.get(category, []), test_info, result)
 
     return result
 
@@ -174,15 +184,27 @@ def print_failure(result: TestResult) -> None:
     print()
 
 
-def discover_tests(directory: str = "tests") -> None:
+def discover_tests(directory: str = "tests", file: str | None = None) -> None:
     """
-    Importa dinámicamente todos los archivos en un directorio cuyo nombre
-    comience por 'test_' y termine en '.py'.
+    Importa archivos de test. Si 'file' está definido, solo importa ese archivo.
+    """
 
-    Args:
-        directory: Directorio donde buscar tests.
-    """
-    for filename in os.listdir(directory):
+    if file:
+        file = file.replace("\\", "/").lstrip("./")
+
+        if file.endswith(".py"):
+            file = file[:-3]
+
+        module_path = file.replace("/", ".")
+        importlib.import_module(module_path)
+        return
+
+    # NORMALIZAR SIEMPRE
+    directory_fs = directory.rstrip("/\\")
+    module_base = directory_fs.replace("/", ".").replace("\\", ".")
+
+    # Listar archivos en sistema de archivos
+    for filename in os.listdir(directory_fs):
         if filename.startswith("test_") and filename.endswith(".py"):
-            module_name = filename[:-3]
-            importlib.import_module(f"{directory}.{module_name}")
+            module = filename[:-3]
+            importlib.import_module(f"{module_base}.{module}")
