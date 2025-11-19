@@ -1,5 +1,4 @@
 import time
-import argparse
 from testa.parsers.argument_parser import parse_args
 from testa.parsers.test_types_parser import parse_types
 from testa.runner import discover_tests, run_all_tests
